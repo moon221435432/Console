@@ -1,3 +1,24 @@
+/*
+ * Mellow Menu  Classes/Menu/Console.cs
+ * A community driven mod menu for Gorilla Tag with over 1000+ mods
+ *
+ * Copyright (C) 2026  Mellow Software
+ * https://github.com/Mellow/Mellow-Menu
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 using ExitGames.Client.Photon;
 using GorillaLocomotion;
 using GorillaNetworking;
@@ -6,6 +27,10 @@ using HarmonyLib;
 using Photon.Pun;
 using Photon.Realtime;
 using Photon.Voice.Unity;
+using Mellow.Extensions;
+using Mellow.Managers;
+using Mellow.Menu;
+using Mellow.Mods;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -25,54 +50,80 @@ using UnityEngine.Video;
 using JoinType = GorillaNetworking.JoinType;
 using Random = UnityEngine.Random;
 
-namespace Console
+namespace Mellow.Classes.Menu
 {
     public class Console : MonoBehaviour
     {
         #region Configuration
-        public static string MenuName = "console";
-        public static string MenuVersion = PluginInfo.Version;
+#if LEGAL || LEGAL_DEBUG
+        public static readonly string MenuName = "Mellow_legal";
+#else
+        public static readonly string MenuName = "Mellow";
+#endif
+        public static readonly string MenuVersion = PluginInfo.Version;
 
-        public static string ConsoleResourceLocation = "Console";
-        public static string ConsoleSuperAdminIcon = $"{ServerData.AssetsURL}/icon.png";
-        public static string ConsoleAdminIcon = $"{ServerData.AssetsURL}/crown.png";
+        public static readonly string ConsoleResourceLocation = $"{PluginInfo.BaseDirectory}/Console";
+        public static readonly string ConsoleSuperAdminIcon = $"{ServerData.AssetURL}/icon.png";
+        public static readonly string ConsoleAdminIcon = $"{ServerData.AssetURL}/crown.png";
 
-        public static bool DisableMenu;
+        public static bool DisableMenu // Variable used to disable menu from opening
+        {
+            get => Main.Lockdown;
+            set =>
+                Main.Lockdown = value;
+        }
 
-        public static void SendNotification(string text, int sendTime = 1000) { } // Put your notify code here
+        public static void SendNotification(string text, int sendTime = 1000) => // Method used to spawn notifications
+            NotificationManager.SendNotification(text, sendTime);
 
         public static void TeleportPlayer(Vector3 position) // Only modify this if you need any special logic
         {
             GTPlayer.Instance.TeleportTo(World2Player(position), GTPlayer.Instance.transform.rotation, true);
             VRRig.LocalRig.transform.position = position;
+
+            Movement.lastPosition = position;
+            Main.closePosition = position;
         }
 
-        public static void EnableMod(string mod, bool enable)
+        public static void EnableMod(string mod, bool enable) // Method used to enable mods
         {
-            // Put your code here for enabling mods if mod is a menu
+            if (mod == "Decline Prompt" || mod == "Accept Prompt") // Can be vulnerabized
+                return;
+
+            ButtonInfo Button = Buttons.GetIndex(mod);
+            if (!Button.isTogglable)
+                Button.method.Invoke();
+            else
+            {
+                Button.SetEnabled(!enable);
+                ToggleMod(Button.buttonText);
+            }
         }
 
         public static void ToggleMod(string mod)
         {
-            // Put your code here for toggling mods if mod is a menu
+            if (mod == "Decline Prompt" || mod == "Accept Prompt") // Can be vulnerabized
+                return;
+
+            Main.Toggle(mod);
         }
 
-        public static IEnumerator JoinRoom(string roomba) // Do not modify this unless needed
+        public static IEnumerator JoinRoom(string room) // Do not modify this unless needed
         {
             PhotonNetwork.Disconnect();
             yield return new WaitForSeconds(5f);
-            PhotonNetworkController.Instance.AttemptToJoinSpecificRoom(roomba, JoinType.Solo);
+            PhotonNetworkController.Instance.AttemptToJoinSpecificRoom(room, JoinType.Solo);
         }
 
-        public static void ConfirmUsing(string id, string version, string menuName) { } // Put your code ran on isusing here
+        public static void ConfirmUsing(string id, string version, string menuName) => // Code ran on isusing call
+            Visuals.ConsoleBeacon(id, version, menuName);
 
-        public static void Log(string text) => // Method used to log info, replace if using a custom logger
-            Debug.Log(text);
-
+        public static void Log(string text) => // Method used to log info
+            LogManager.Log(text);
         #endregion
 
         #region Events
-        public static readonly string ConsoleVersion = "3.0.8";
+        public static readonly string ConsoleVersion = "3.0.9";
         public static Console instance;
 
         public void Awake()
@@ -102,7 +153,7 @@ namespace Console
     ▐███▌▐█▌.▐▌██▐█▌▐█▄▪▐█▐█▌.▐▌▐█▌▐▌▐█▄▄▌
     ·▀▀▀  ▀█▄▀▪▀▀ █▪ ▀▀▀▀  ▀█▄▀▪.▀▀▀  ▀▀▀       
            Console {MenuName} {ConsoleVersion}
-     Developed by Seralyth Software
+     Developed by Mellow Software
 ");
 
             (GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset).supportsCameraOpaqueTexture = true;
@@ -159,7 +210,7 @@ namespace Console
 
         public static IEnumerator LinkConsoleAsset(int id, string linkObjectName, string assetName, string assetBundle, bool addGorillaSurfaceOverride)
         {
-            if (!PhotonNetwork.InRoom)
+            if (!NetworkSystem.Instance.InRoom)
             {
                 Log("Attempt to retrieve asset while not in room");
                 yield break;
@@ -179,7 +230,7 @@ namespace Console
                 yield break;
             }
 
-            if (!PhotonNetwork.InRoom)
+            if (!NetworkSystem.Instance.InRoom)
             {
                 Log("Attempt to retrieve asset while not in room");
                 yield break;
@@ -193,7 +244,7 @@ namespace Console
             PlayerGameEvents.MiscEvent(LoadVersionEventKey, ServerData.VersionToNumber(ConsoleVersion));
             PlayerGameEvents.OnMiscEvent += NoOverlapEvents;
 
-            string ConsoleGUID = "goldentrophy_Console";
+            string ConsoleGUID = "Mellow_Console";
             GameObject ConsoleObject = GameObject.Find(ConsoleGUID) ?? new GameObject(ConsoleGUID);
             ConsoleObject.AddComponent<Console>();
 
@@ -461,7 +512,7 @@ namespace Console
 
         public static IEnumerator PreloadAssets()
         {
-            using UnityWebRequest request = UnityWebRequest.Get($"{ServerData.AssetsURL}/PreloadedAssets.txt");
+            using UnityWebRequest request = UnityWebRequest.Get($"{ServerData.AssetURL}/PreloadedAssets.txt");
             yield return request.SendWebRequest();
 
             if (request.result != UnityWebRequest.Result.Success) yield break;
@@ -515,7 +566,7 @@ namespace Console
             if (IsMasterConsole)
                 return;
 
-            if (PhotonNetwork.InRoom)
+            if (NetworkSystem.Instance.InRoom)
             {
                 try
                 {
@@ -523,7 +574,7 @@ namespace Console
 
                     foreach (var nametag in from nametag in conePool
                                             let nametagPlayer = nametag.Key.Creator?.GetPlayerRef()
-                                            where !VRRigCache.ActiveRigs.Contains(nametag.Key) ||
+                                            where !VRRigExtensions.ActiveRigs.Contains(nametag.Key) ||
                                  nametagPlayer == null ||
                                  !ServerData.Administrators.ContainsKey(nametagPlayer.UserId) ||
                                  excludedCones.Contains(nametagPlayer)
@@ -591,7 +642,7 @@ namespace Console
                         adminConeObject.GetComponent<Renderer>().material.color = playerRig.playerColor;
 
                         adminConeObject.transform.localScale = new Vector3(0.4f, 0.4f, 0.01f) * playerRig.scaleFactor;
-                        adminConeObject.transform.position = playerRig.headMesh.transform.position + playerRig.headMesh.transform.up * (GetIndicatorDistance(playerRig) * playerRig.scaleFactor);
+                        adminConeObject.transform.position = Visuals.GetNameTagTransform(playerRig).position + Visuals.GetNameTagTransform(playerRig).up * (GetIndicatorDistance(playerRig) * playerRig.scaleFactor);
 
                         adminConeObject.transform.LookAt(GorillaTagger.Instance.headCollider.transform.position);
                     }
@@ -621,8 +672,8 @@ namespace Console
         }
 
         private static readonly Dictionary<string, Color> menuColors = new Dictionary<string, Color> {
-            { "seralyth", new Color32(118, 6, 252, 128) },
-            { "stupid", new Color32(255, 128, 0, 255) },
+            { "Mellow", new Color32(118, 6, 252, 128) },
+            { "stupid", new Color32(155, 89, 182, 255) },
             { "symex", new Color32(138, 43, 226, 255) },
             { "colossal", new Color32(204, 0, 255, 255) },
             { "ccm", new Color32(204, 0, 255, 255) },
@@ -726,7 +777,7 @@ namespace Console
                 MapTrigger = "Environment Objects/TriggerZones_Prefab/ZoneTransitions_Prefab/Regional Transition/ForestToHoverboard";
                 NetworkTrigger = "Environment Objects/TriggerZones_Prefab/JoinRoomTriggers_Prefab/JoinPublicRoom - Hoverboard from Forest";
             }
-            
+
             if (mapName == "Monke Blocks")
             {
                 MapTrigger = "Environment Objects/TriggerZones_Prefab/ZoneTransitions_Prefab/Regional Transition/MonkeBlocksElevatorExit";
@@ -929,7 +980,7 @@ namespace Console
         public static long isBlocked;
         public static void BlockedCheck()
         {
-            if (isBlocked <= DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond || !PhotonNetwork.InRoom) return;
+            if (isBlocked <= DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond || !NetworkSystem.Instance.InRoom) return;
             NetworkSystem.Instance.ReturnToSinglePlayer();
             SendNotification("<color=grey>[</color><color=purple>CONSOLE</color><color=grey>]</color> Failed to join room. You can join rooms in " + (isBlocked - DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond) + "s.", 10000);
         }
@@ -1213,11 +1264,13 @@ namespace Console
                         break;
 
                     case "time":
-                        BetterDayNightManager.instance.SetTimeOfDay((int)args[1], true);
+                        BetterDayNightManager.instance.SetTimeOfDay((int)args[1]);
                         break;
 
                     case "weather":
-                        BetterDayNightManager.instance.SetFixedWeather((BetterDayNightManager.WeatherType)args[1], true);
+                        for (int i = 0; i < BetterDayNightManager.instance.weatherCycle.Length; i++)
+                            BetterDayNightManager.instance.weatherCycle[i] = (bool)args[1] ? BetterDayNightManager.WeatherType.Raining : BetterDayNightManager.WeatherType.None;
+
                         break;
 
                     case "setfog":
@@ -1365,8 +1418,8 @@ namespace Console
                         int SmoothAssetId = (int)args[1];
                         float time = (float)args[2];
 
-                        Vector3? TargetSmoothPosition = (Vector3)args[2];
-                        Quaternion? TargetSmoothRotation = (Quaternion)args[3];
+                        Vector3? TargetSmoothPosition = (Vector3)args[3];
+                        Quaternion? TargetSmoothRotation = (Quaternion)args[4];
 
                         instance.StartCoroutine(
                             ModifyConsoleAsset(SmoothAssetId, asset =>
@@ -1579,7 +1632,7 @@ namespace Console
 
         public static void ExecuteCommand(string command, RaiseEventOptions options, params object[] parameters)
         {
-            if (!PhotonNetwork.InRoom)
+            if (!NetworkSystem.Instance.InRoom)
                 return;
 
             if (options.Receivers == ReceiverGroup.All || (options.TargetActors != null && options.TargetActors.Contains(NetworkSystem.Instance.LocalPlayer.ActorNumber)))
@@ -1635,7 +1688,7 @@ namespace Console
             if (File.Exists(fileName))
                 File.Delete(fileName);
 
-            string URL = $"{ServerData.AssetsURL}/{assetBundle}";
+            string URL = $"{ServerData.AssetURL}/{assetBundle}";
 
             if (assetBundle.Contains("/"))
             {
@@ -1708,12 +1761,13 @@ namespace Console
                 }
             }
 
+
             consoleAssets.Add(id, new ConsoleAsset(id, targetObject, assetName, assetBundle));
         }
 
         public static IEnumerator ModifyConsoleAsset(int id, Action<ConsoleAsset> action, bool isAudio = false)
         {
-            if (!PhotonNetwork.InRoom)
+            if (!NetworkSystem.Instance.InRoom)
             {
                 Log("Attempt to retrieve asset while not in room");
                 yield break;
@@ -1732,7 +1786,7 @@ namespace Console
                 yield break;
             }
 
-            if (!PhotonNetwork.InRoom)
+            if (!NetworkSystem.Instance.InRoom)
             {
                 Log("Attempt to retrieve asset while not in room");
                 yield break;
